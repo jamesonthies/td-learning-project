@@ -1,4 +1,5 @@
 import math
+import copy
 import pygame
 from pygame.locals import *
 import numpy as np
@@ -6,7 +7,8 @@ from helpers import on_track,detect_h,detect_v
 
 #global track variables
 background_color = [20,20,30]
-track_color = [175,200,200]
+#track_color = [175,200,200]
+track_color = [20,20,30]
 track = [[(50,50),(590,50)],[(50,50),(50,350)],[(590,50),(590,350)],[(50,350),(290,350)], \
         [(350,350),(590,350)],[(110,110), (530,110)],[(110,110),(110,290)],[(110,290),(230,290)], \
         [(530,110),(530,290)],[(410,290),(530,290)],[(230,170),(410,170)],[(230,170),(230,290)], \
@@ -20,15 +22,22 @@ class Model:
         self.checkpoints = Checkpoints()
         self.timer = 0
         self.run_count = 1
-        self.epsilon = 0.3
-        self.step_size = 0.9
-        self.discount = 0.9
+        self.test_run_count = 1
+        self.epsilon = 0.1
+        self.test_epsilon = 0.05
+        self.a = 0.1
+        self.n = 64
+        self.discount = 1
         self.max_steps = 10000
-        self.Q = np.random.sample([5,5,5,5,5,5,5,9])*10
-        #self.Q = np.zeros([5,5,2,2,2,2,2,9])
-        self.state = [] #some initial state
+        self.Q = np.random.sample([2,3,3,3,3,3,3,9])*100
+        self.state = []
         self.next_state = []
+        self.state_path = [] #some initial state
         self.action = 4
+        self.action_path = []
+        self.reward_path = []
+        self.T = float('inf')
+        self.show = 1
 
     def on_init(self):
         pygame.init()
@@ -40,40 +49,88 @@ class Model:
         if event.type == pygame.QUIT:
             self.running = False
 
-    def loop(self, training=0):
+    def loop(self):
         #render basic game
-        if(training != 1):
-            self.render_basics()
-        else:
-            self.norender_basics()
-
-        self.timer += 1        
-        if(self.timer == 1):
+        
+        #learning
+        if(self.timer == 0):
+            self.render_basics() if self.show == 1 else self.norender_basics()
             self.car.update_state()
             self.state = self.car.state
+            self.state_path.append(self.car.state)
             self.action = self.choose_action()
+            self.action_path.append(self.action)
             self.act()
+            self.timer += 1
         else:
+            if(self.timer < self.T):
+                terminal = (self.timer > self.max_steps or self.check_collision())
+                self.render_basics() if self.show == 1 else self.norender_basics()
+                self.car.update_state()
+                self.next_state = self.car.state
+                reward = self.current_reward()
+                #terminal
+                if(terminal):
+                    self.T = self.timer
+                else:
+                    self.action = self.choose_action(1)
+                self.action_path.append(self.action)
+                self.state_path.append(self.car.state)
+                self.reward_path.append(reward)
+
+            toa = self.timer-self.n
+            if(toa >= 0):
+                gain = 0.0
+                for t in range(toa, min(self.T, toa+self.n)):
+                    gain += (self.discount**(t-toa-1))*self.reward_path[t]
+
+                if(toa + self.n < self.T):
+                    q_index = copy.copy(self.state_path[toa+self.n])
+                    q_index.append(self.action_path[toa+self.n])
+                    gain += (self.discount**(self.n))*self.Q[tuple(q_index)]
+                #print('----')
+                #print(len(self.state_path))
+                #print(len(self.action_path))
+                q_update = copy.copy(self.state_path[toa])
+                q_update.append(self.action_path[toa])
+                if(self.reward_path[toa] != -500):
+                    self.Q[tuple(q_update)] += self.a*(gain-self.Q[tuple(q_update)])
+
+            if(toa == self.T-1):
+                print('Run: %d' % self.run_count)
+                self.run_count+=1
+                self.reset()
+            else:
+                self.timer += 1     
+            self.state = self.next_state
+            self.act()  
+
+    def test_loop(self):
+        if(self.timer == 0):
+            self.render_basics() if self.show == 1 else self.norender_basics()
+            self.car.update_state()
+            self.state = self.car.state
+            self.action = self.choose_action(test_greedy=1)
+            self.act()
+            self.timer += 1
+            return 0
+        else:
+            terminal = (self.timer > self.max_steps or self.check_collision())
+            self.render_basics() if self.show == 1 else self.norender_basics()
             self.car.update_state()
             self.next_state = self.car.state
-            reward = self.current_reward()
-            sa_array = np.concatenate((self.state,[self.action]),axis=None)
-            nsa_array = np.concatenate((self.next_state, [np.argmax(tuple(self.state))]),axis=None)
-            qnsa = self.Q[tuple(nsa_array)]
-            self.Q[tuple(sa_array)] += self.step_size*(reward+self.discount*qnsa-self.Q[tuple(sa_array)])
-            self.state = self.next_state
             self.action = self.choose_action()
-            self.act()
-        #if(self.timer > 5000 or self.check_collision()):
-        #    self.reset()
-        if(self.timer > self.max_steps or self.check_collision()):
-            print('Run: %d' % self.run_count)
-            self.run_count+=1
-            self.reset()
-        #if(self.check_collision()):
-        #    print('Run: %d' % self.run_count)
-        #    self.run_count+=1
-        #    self.reset()
+            reward = self.current_reward()          
+            if(terminal):
+                print('Test Run: %d' % self.test_run_count)
+                self.test_run_count+=1
+                self.reset()
+            else:
+                self.timer += 1     
+                self.state = self.next_state
+                self.act()  
+            return reward
+
 
     def clean(self):
         pygame.quit()
@@ -89,13 +146,52 @@ class Model:
         self.clean()
 
     def train(self, num_runs):
-        while(self.run_count<num_runs):
-            self.loop(1)
+        self.show = 0
+        run_lim = self.run_count+num_runs
+        while(self.run_count<run_lim):
+            self.loop()
+        self.show = 1
+
+    def test_ws(self,num_runs):
+        self.test_run_count = 1
+        reward_total = 0
+        if self.on_init() == False:
+            self.running = False
+        while( self.running and self.test_run_count <= num_runs):
+            for event in pygame.event.get():
+                self.on_event(event)
+            r = self.test_loop()
+            reward_total += r
+            pygame.display.update()
+        return reward_total/num_runs
+
+
+    def test(self,num_runs):
+        self.show = 0
+        temp = copy.copy(self.epsilon)
+        self.epsilon = self.test_epsilon
+        self.test_run_count = 1
+        reward_total = 0
+        while(self.test_run_count <= num_runs):
+            r = self.test_loop()
+            reward_total+=r
+        self.epsilon = temp
+        self.show = 1
+        return reward_total/num_runs
+
+
 
     def reset(self):
         self.car = Car()
         self.checkpoints = Checkpoints()
         self.timer = 0
+        self.state = []
+        self.next_state = []
+        self.state_path = [] #some initial state
+        self.action = 4
+        self.action_path = []
+        self.reward_path = []
+        self.T = float('inf')
 
     def render_basics(self):
         #render the game elements
@@ -122,14 +218,13 @@ class Model:
         reward = 0
         if(self.check_collision()):
             self.car.color = [255,0,0]
-            reward = -500
+            reward = 0
         else:
             self.car.color = [0,0,225]
-            reward = -1
+            reward = 0
         if(self.checkpoints.check_pass(self.car.corners)):
-            reward = reward+1001
+            reward = reward+10
         return reward
-
 
     def check_collision(self):
         if(on_track(self.car.corners[0]) and on_track(self.car.corners[1]) and on_track(self.car.corners[2]) and on_track(self.car.corners[3])):
@@ -137,11 +232,12 @@ class Model:
         else:
             return True
 
-    def choose_action(self):
-        if(np.random.sample(1) < self.epsilon):
+    def choose_action(self, next=0,test_greedy=0):
+        comp = self.epsilon if test_greedy == 0 else self.test_epsilon
+        if(np.random.sample(1) < comp):
             action = np.random.randint(0,9)
         else:
-            i = self.state
+            i = self.state if next == 0 else self.next_state
             action_choices = self.Q[i[0],i[1],i[2],i[3],i[4],i[5],i[6],:]
             action = np.argmax(action_choices)
         return action
@@ -157,12 +253,12 @@ class Car:
         self.location_x = 80
         self.location_y = 200
         self.velocity = 0
-        self.velocity_step = 0.1
-        self.velocity_limit = 0.4
+        self.velocity_step = 0.8
+        self.velocity_limit = 0.8
         self.orientation = 270
         self.orientation_change = 0
-        self.orientation_step = 0.08
-        self.orientation_change_limit = 0.16
+        self.orientation_step = 1
+        self.orientation_change_limit = 1
         self.corners = []
         self.color = [0,255,0]
         self.size = 15
@@ -230,7 +326,7 @@ class Car:
         self.orientation_change = max(self.orientation_change, -1*self.orientation_change_limit)
 
     def update_state(self):
-        self.state = [round(self.velocity/self.velocity_step),round(self.orientation_change/self.orientation_step)+2,self.sensor1.state,self.sensor2.state,self.sensor3.state,self.sensor4.state,self.sensor5.state]
+        self.state = [round(self.velocity/self.velocity_step),round(self.orientation_change/self.orientation_step)+1,self.sensor1.state,self.sensor2.state,self.sensor3.state,self.sensor4.state,self.sensor5.state]
 
     def render(self, screen):
         
@@ -279,19 +375,31 @@ class Sensor:
         '''
         if(min_distance < 25):
             self.state = 0
-            self.color = [255,0,0]
+            self.color = [225,0,0]
         elif(min_distance < 50):
             self.state = 1
-            self.color = [255,128,0]
-        elif(min_distance<75):
+            #self.color = [182,219,102]
+            self.color = [225,128,0]
+            #self.state = 0
+            #self.color = [255,0,0]
+        elif(min_distance< 75):
             self.state = 2
-            self.color = [255,255,0]
-        elif(min_distance<100):
-            self.state = 3
-            self.color = [48,255,207]
+            #self.color = [125,190,102]
+            self.color = [0,255,0]
+            #self.state = 1
+            #self.color = [0,255,0]
+        elif(min_distance< 100):
+            self.state = 2
+            #self.color = [81,168,102]
+            self.color =  [0,255,0]
+            #self.state = 1
+            #self.color = [0,255,0]
         else:
-            self.state = 4
-            self.color = [0,0,225]
+            self.state = 2
+            self.color =  [0,255,0]
+            #self.color = [182,219,102]
+            #self.state = 1
+            #self.color = [0,255,0]
         self.distance = min_distance           
 
     def render(self, screen):
@@ -300,9 +408,15 @@ class Sensor:
 
 class Checkpoints:
     def __init__(self):
-        self.checkpoints = [(50,150,60,10), (150,50,10,60),(315,50,10,60),(480,50,10,60),\
-        (530,150,60,10),(530,250,60,10),(465,290,10,60),(350,255,60,10),(315,170,10,60),\
-        (230,255,60,10),(165,290,10,60),(50,250,60,10)]
+        self.checkpoints = [(50,166,60,10),(50,110,60,10),
+        (110,50,10,60),(212,50,10,60),(315,50,10,60),(418,50,10,60),(520,50,10,60),\
+        (530,110,60,10),(530,166,60,10),(530,223,60,10),(530,280,60,10),\
+        (520,290,10,60),(465,290,10,60),(410,290,10,60),\
+        (350,280,60,10),(350,230,60,10),\
+        (340,170,10,60),(290,170,10,60),\
+        (230,230,60,10),(230,280,60,10),\
+        (220,290,10,60),(165,290,10,60),(110,290,10,60),\
+        (50,280,60,10),(50,223,60,10)]
         self.active = 0
 
     def render_all(self, screen):
@@ -323,5 +437,13 @@ class Checkpoints:
 
 if __name__ == "__main__" :
     model = Model()
-    model.train(10)
-    model.run()        
+    r0 = model.test_ws(100)
+    model.train(50)
+    r100 = model.test_ws(100)
+    model.train(50)
+    r500 = model.test_ws(100)
+    
+
+    print(r0)
+    print(r100)
+    print(r500)
