@@ -4,11 +4,11 @@ def on_track(coord, track):
     x,y = coord
     if(track == 2):
         if(x>50 and x<590 and y>50 and y<350):
-            if(x < 350 and y > 230):
+            if(x < 410 and y > 230):
                 #left
                 return False
             else:
-                if(x > 410 and x < 530 and y > 110 and y < 290):
+                if(x > 470 and x < 530 and y > 110 and y < 290):
                     #right
                     return False
                 else:
