@@ -1,5 +1,11 @@
+#Jameson Thies
+#Kourosh Vali
+#Yanda Chen
+
 import math
 
+#on track checks to see if a coordinate is on the track. This is used to check that all 4 corners of the car are on the track
+#clearly this depends on the track
 def on_track(coord, track):
     x,y = coord
     if(track == 2):
@@ -39,6 +45,8 @@ def on_track(coord, track):
         else:
             return False
 
+#looks for ray intersection with horizontal line segments
+#returns distance of intersection or -1 if no intersection
 def detect_h(point, orientation, segment):
     check = (segment[0][1] > point[1] and 1*orientation > 180) or (segment[0][1] < point[1] and 1*orientation < 180)
     if(check):
@@ -54,6 +62,8 @@ def detect_h(point, orientation, segment):
         else:
             return -1
     
+#looks for ray intersection with vertial line segment
+#returns distance of intersection or -1 if no intersection
 def detect_v(point,orientation,segment):
     if((segment[0][0] > point[0] and orientation > 90 and orientation < 270) or ((segment[0][0] < point[0] and (orientation < 90 or orientation > 270)))):
         return -1
