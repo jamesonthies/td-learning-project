@@ -1,3 +1,6 @@
+#helpers.py
+#Code availale at https://github.com/jamesonthies/td-learning-project
+
 #Jameson Thies
 #Kourosh Vali
 #Yanda Chen
